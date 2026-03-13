@@ -1,0 +1,228 @@
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tera Tera Medal Pro</title>
+    <style>
+        body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Arial Black', sans-serif; touch-action: manipulation; }
+        #game-wrapper { position: relative; border: 5px solid #222; border-radius: 12px; overflow: hidden; width: 380px; height: 520px; background: #70c5ce; }
+        canvas { display: block; }
+
+        /* Dashboard */
+        .ui-dash { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 100; }
+        .score-val { font-size: 48px; text-shadow: 4px 4px 0px #000; line-height: 1; margin: 0; }
+        .timer-val { font-size: 16px; margin-top: 2px; text-shadow: 2px 2px #000; color: #fff; font-weight: bold; }
+
+        /* --- NEW: Notification Style --- */
+        #medal-toast { 
+            position: absolute; top: -100px; left: 50%; transform: translateX(-50%);
+            width: 280px; background: rgba(255, 255, 255, 0.95); border: 3px solid #f1c40f;
+            border-radius: 50px; padding: 10px 20px; text-align: center;
+            font-size: 14px; color: #333; font-weight: bold; z-index: 2000;
+            transition: top 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        #medal-toast.show { top: 80px; }
+
+        /* Countdown */
+        #countdown-overlay { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            font-size: 130px; color: #bdc3c7; -webkit-text-stroke: 4px white;
+            text-shadow: 4px 4px 0px rgba(0,0,0,0.5); z-index: 600; display: none; 
+        }
+
+        /* Result Board */
+        #scoreboard { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            width: 260px; background: #bdc3c7; border: 6px solid #7f8c8d; border-radius: 20px; 
+            padding: 20px; display: none; z-index: 1000; text-align: center; box-shadow: 0 10px 0 #7f8c8d;
+        }
+        .medal-display { font-size: 60px; height: 70px; margin-bottom: 5px; }
+        .board-inner { background: #f7f9f9; border-radius: 12px; padding: 15px; border: 2px solid #95a5a6; }
+
+        .gear-btn { position: absolute; top: 15px; right: 15px; font-size: 30px; color: #f1c40f; cursor: pointer; z-index: 2000; }
+        #settings-menu { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 20px; border: 5px solid #000; border-radius: 15px; display: none; z-index: 3000; text-align: center; width: 200px; }
+        .menu-btn { width: 100%; padding: 10px; margin: 5px 0; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; }
+        .reset-red { background: #e74c3c !important; color: white !important; }
+        #start-scr { position: absolute; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; z-index: 500; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="game-wrapper">
+        <div id="medal-toast">YOU ACHIEVE A BRONZE MEDAL! 🥉</div>
+
+        <div class="ui-dash">
+            <div class="score-val" id="ui-score">0</div>
+            <div class="timer-val">TIME: <span id="ui-timer">0</span>s</div>
+        </div>
+
+        <div id="gear" class="gear-btn" onclick="toggleMenu(event)">⚙️</div>
+        <div id="countdown-overlay">3</div>
+
+        <div id="start-scr" onclick="beginGame()">
+            <div style="background:white; padding:20px 40px; border:4px solid #000; border-radius:15px; text-align:center;">
+                <h2 style="margin:0;">READY?</h2>
+                <p style="margin:5px 0; color:#555;">SPACE or CLICK</p>
+            </div>
+        </div>
+
+        <div id="settings-menu">
+            <h3 style="margin-top:0;">PAUSED</h3>
+            <button class="menu-btn" onclick="toggleSound()" id="v-btn" style="background:#3498db; color:white;">SOUND: ON</button>
+            <button class="menu-btn reset-red" onclick="resetBest()">RESET BEST</button>
+            <button class="menu-btn" onclick="toggleMenu(event)" style="background:#2ecc71; color:white;">RESUME</button>
+        </div>
+
+        <div id="scoreboard" onclick="restart()">
+            <h2 style="margin:0 0 5px 0; color:#2c3e50;">GAME OVER</h2>
+            <div id="medal-icon" class="medal-display"></div>
+            <div class="board-inner">
+                <p style="margin:5px 0; color:#7f8c8d; font-size:12px;">SCORE</p>
+                <div style="font-size:42px; color:#2c3e50; font-weight:bold;" id="f-score">0</div>
+                <hr style="border:0; border-top:1px solid #ddd; margin:10px 0;">
+                <p style="margin:5px 0; color:#7f8c8d; font-size:12px;">BEST</p>
+                <div style="font-size:24px; color:#2c3e50;" id="f-best">0</div>
+            </div>
+            <p style="font-size:11px; margin-top:15px; font-weight:bold;">CLICK TO REPLAY</p>
+        </div>
+
+        <canvas id="gameCanvas" width="380" height="520"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let soundOn = true, high = localStorage.getItem('TTERA_MD_BEST') || 0;
+
+        const audio = new (window.AudioContext || window.webkitAudioContext)();
+        function playSfx(f, d) {
+            if (!soundOn) return;
+            const o = audio.createOscillator(), g = audio.createGain();
+            o.frequency.setValueAtTime(f, audio.currentTime);
+            g.gain.setValueAtTime(0.05, audio.currentTime);
+            o.connect(g); g.connect(audio.destination);
+            o.start(); o.stop(audio.currentTime + d);
+        }
+
+        let state = "START", score = 0, pipes = [], frame = 0, startTime = 0, elapsed = 0;
+        let bird = { x: 70, y: 250, v: 0, gravity: 0.22, jump: -5.2 };
+
+        // --- NEW: Notification Logic ---
+        function showMedalToast(text) {
+            const toast = document.getElementById('medal-toast');
+            toast.innerText = text;
+            toast.classList.add('show');
+            playSfx(900, 0.2); // Special sound for medal
+            setTimeout(() => { toast.classList.remove('show'); }, 3000);
+        }
+
+        function jumpAction() {
+            if (state === "PLAY") { bird.v = bird.jump; playSfx(450, 0.08); }
+            else if (state === "START") { beginGame(); }
+            else if (state === "DEAD") { restart(); }
+        }
+
+        function beginGame() {
+            if (state !== "START") return;
+            state = "WAIT";
+            document.getElementById('start-scr').style.display = "none";
+            let c = 3;
+            const cd = document.getElementById('countdown-overlay');
+            cd.style.display = "block"; cd.innerText = c; playSfx(400, 0.1);
+            let timer = setInterval(() => {
+                if(state === "PAUSED") return;
+                c--;
+                if(c > 0) { cd.innerText = c; playSfx(400, 0.1); }
+                else if(c === 0) { cd.innerText = "GO!"; playSfx(800, 0.2); }
+                else { clearInterval(timer); cd.style.display = "none"; state = "PLAY"; startTime = Date.now(); }
+            }, 1000);
+        }
+
+        function toggleMenu(e) {
+            if(e) e.stopPropagation();
+            const m = document.getElementById('settings-menu');
+            if (state === "PLAY" || state === "WAIT") { pS = state; state = "PAUSED"; m.style.display = "block"; }
+            else if (state === "PAUSED") { state = pS; m.style.display = "none"; }
+        }
+
+        function toggleSound() { soundOn = !soundOn; document.getElementById('v-btn').innerText = "SOUND: " + (soundOn ? "ON" : "OFF"); }
+        function resetBest() { high = 0; localStorage.setItem('TTERA_MD_BEST', 0); alert("Reset Done!"); }
+
+        function die() {
+            state = "DEAD"; playSfx(150, 0.5);
+            document.getElementById('f-score').innerText = score;
+            document.getElementById('f-best').innerText = high;
+            let mIcon = document.getElementById('medal-icon');
+            if(score >= 30) mIcon.innerText = "🥇";
+            else if(score >= 20) mIcon.innerText = "🥈";
+            else if(score >= 10) mIcon.innerText = "🥉";
+            else mIcon.innerText = ""; 
+            document.getElementById('scoreboard').style.display = "block";
+        }
+
+        function restart() {
+            score = 0; pipes = []; bird.y = 250; bird.v = 0; frame = 0;
+            document.getElementById('ui-score').innerText = 0;
+            document.getElementById('scoreboard').style.display = "none";
+            document.getElementById('start-scr').style.display = "flex";
+            state = "START";
+        }
+
+        function update() {
+            if (state !== "PLAY") return;
+            frame++;
+            elapsed = Math.floor((Date.now() - startTime) / 1000);
+            document.getElementById('ui-timer').innerText = elapsed;
+            bird.v += bird.gravity; bird.y += bird.v;
+            if (bird.y > 485 || bird.y < 0) die();
+            if (frame % 95 === 0) pipes.push({ x: 400, t: Math.random() * 200 + 50, passed: false });
+            
+            pipes.forEach((p, i) => {
+                p.x -= 3.2;
+                if (bird.x + 25 > p.x && bird.x < p.x + 50 && (bird.y < p.t || bird.y + 20 > p.t + 160)) die();
+                if (!p.passed && p.x < bird.x) {
+                    p.passed = true; score++; 
+                    document.getElementById('ui-score').innerText = score;
+                    
+                    // --- Check for Medal Notification ---
+                    if(score === 10) showMedalToast("YOU ACHIEVE A BRONZE MEDAL! 🥉");
+                    if(score === 20) showMedalToast("YOU ACHIEVE A SILVER MEDAL! 🥈");
+                    if(score === 30) showMedalToast("YOU ACHIEVE A GOLD MEDAL! 🥇");
+
+                    if (score > high) { high = score; localStorage.setItem('TTERA_MD_BEST', high); }
+                    playSfx(800, 0.1);
+                }
+                if (p.x < -60) pipes.splice(i, 1);
+            });
+        }
+
+        function draw() {
+            ctx.fillStyle = "#70c5ce"; ctx.fillRect(0,0,380,520);
+            pipes.forEach(p => {
+                ctx.fillStyle = "#73bf2e"; ctx.strokeStyle = "#000"; ctx.lineWidth = 2.5;
+                ctx.fillRect(p.x, 0, 52, p.t); ctx.strokeRect(p.x, 0, 52, p.t);
+                ctx.fillRect(p.x, p.t+160, 52, 520); ctx.strokeRect(p.x, p.t+160, 52, 520);
+                ctx.fillRect(p.x-4, p.t-20, 60, 20); ctx.strokeRect(p.x-4, p.t-20, 60, 20);
+                ctx.fillRect(p.x-4, p.t+160, 60, 20); ctx.strokeRect(p.x-4, p.t+160, 60, 20);
+            });
+            ctx.fillStyle = "#ded895"; ctx.fillRect(0, 500, 380, 20);
+            ctx.fillStyle = "#000"; ctx.fillRect(0, 500, 380, 2);
+            ctx.fillStyle = "#f1c40f"; ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
+            ctx.fillRect(bird.x, bird.y, 34, 24); ctx.strokeRect(bird.x, bird.y, 34, 24);
+            ctx.fillStyle = "#fff"; ctx.fillRect(bird.x+20, bird.y+4, 10, 8); ctx.strokeRect(bird.x+20, bird.y+4, 10, 8);
+            update(); requestAnimationFrame(draw);
+        }
+
+        window.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON' || e.target.id === 'gear') return;
+            jumpAction();
+        });
+        window.addEventListener('keydown', (e) => {
+            if (e.code === "Space") { e.preventDefault(); jumpAction(); }
+        });
+        draw();
+    </script>
+</body>
+</html>
